@@ -30,8 +30,7 @@
     </div>
 
     <script>
-        const MAX_USERS = 10;
-        const peersList = []; // List of connected peer IDs
+        const peersList = new Set(); // Keep track of all connected peer IDs
         const connections = [];
         let localStream = null;
         let peer = null;
@@ -53,8 +52,8 @@
 
             peer.on("open", (id) => {
                 console.log("Connected with ID:", id);
-                peersList.push(id);
-                addUserIcon(id); // Add local user icon
+                peersList.add(id); // Add local user ID to the list
+                addUserIcon(id); // Show local user in UI
 
                 navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
                     localStream = stream;
@@ -85,16 +84,27 @@
                     // Listen for new connections
                     peer.on("connection", (conn) => {
                         conn.on("data", (data) => {
-                            if (data.type === "join" && !peersList.includes(data.id)) {
-                                peersList.push(data.id);
+                            if (data.type === "join" && !peersList.has(data.id)) {
+                                peersList.add(data.id);
                                 addUserIcon(data.id);
 
+                                // Notify the new user of all current users
+                                conn.send({ type: "current-users", users: Array.from(peersList) });
+                                
                                 // Call the newly joined peer
                                 const call = peer.call(data.id, localStream);
                                 call.on("stream", (remoteStream) => {
                                     addRemoteAudio(remoteStream, call.peer);
                                 });
                                 connections.push(call);
+                            } else if (data.type === "current-users") {
+                                // Add all current users sent by the new user
+                                data.users.forEach((userId) => {
+                                    if (!peersList.has(userId)) {
+                                        peersList.add(userId);
+                                        addUserIcon(userId);
+                                    }
+                                });
                             }
                         });
                     });
@@ -115,6 +125,8 @@
 
         function addUserIcon(peerId) {
             const userIcons = document.getElementById("user-icons");
+            if (document.getElementById(`user-${peerId}`)) return; // Avoid duplicate icons
+
             const userDiv = document.createElement("div");
             userDiv.id = `user-${peerId}`;
             userDiv.className = "p-4 bg-blue-500 text-white rounded shadow";
