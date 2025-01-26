@@ -3,152 +3,152 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Group Voice Chat</title>
-    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Voice Call</title>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div id="entry-modal" class="flex items-center justify-center h-screen bg-gray-800 text-white">
-        <div class="text-center">
-            <h1 class="text-3xl font-bold mb-4">Join Voice Chat</h1>
-            <input id="room-id" class="p-2 rounded text-gray-800" type="text" placeholder="Enter Room ID" />
-            <button id="join-btn" class="px-4 py-2 bg-blue-500 rounded text-white mt-4">Join</button>
+<body class="bg-slate-900 text-white">
+    <div class="min-h-screen flex flex-col justify-center items-center">
+        <!-- Title -->
+        <h1 class="text-4xl font-semibold text-blue-500 mb-8">Delta Meet</h1>
+
+        <!-- Notification -->
+        <p id="notification" class="hidden p-4 mb-4 bg-blue-500 rounded-lg shadow-lg"></p>
+
+        <!-- Entry Modal -->
+        <div class="entry-modal bg-slate-800 p-6 rounded-lg shadow-lg" id="entry-modal">
+            <p class="text-xl text-center text-white mb-4">Create or Join Meeting</p>
+            <input id="room-input" class="room-input bg-slate-700 text-white px-4 py-2 rounded-md mb-4" placeholder="Enter Room ID" type="text">
+            <div class="flex justify-center space-x-4">
+                <button onclick="createRoom()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition">Create Room</button>
+                <button onclick="joinRoom()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition">Join Room</button>
+            </div>
+        </div>
+
+        <!-- Meet Area -->
+        <div class="meet-area mt-8 space-y-6">
+            <!-- Remote Audio Element -->
+            <audio id="remote-audio" class="w-full rounded-lg" controls></audio>
+
+            <!-- Local Audio Element -->
+            <audio id="local-audio" class="w-full rounded-lg" controls muted></audio>
+
+            <!-- Meet Controls Bar -->
+            <div class="meet-controls-bar flex justify-center space-x-4">
+                <button onclick="startScreenShare()" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition">Screen Share</button>
+                <button id="leave-btn" onclick="leaveRoom()" class="bg-red-500 text-white px-6 py-2 rounded-lg hover:bg-red-600 transition">Leave Room</button>
+                <button id="toggle-camera-btn" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition">Camera</button>
+                <button id="toggle-microphone-btn" class="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 transition">Microphone</button>
+            </div>
         </div>
     </div>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <script> 
+        const PRE = "DELTA";
+const SUF = "MEET";
+var room_id;
+var getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+var local_stream;
+var peer = null;
+var currentPeer = null;
+var screenSharing = false;
 
-    <div id="meet-area" class="hidden h-screen flex flex-col">
-        <div class="flex justify-between p-4 bg-blue-600 text-white">
-            <h2 class="text-xl font-bold">Voice Chat Room</h2>
-            <span id="room-id-display"></span>
-        </div>
-        <div class="flex-grow p-4">
-            <div id="user-icons" class="flex flex-wrap gap-4"></div>
-        </div>
-        <div class="p-4 bg-gray-200 text-center">
-            <audio id="local-audio" controls autoplay muted></audio>
-        </div>
-    </div>
-
-    <script>
-        const peersList = new Set(); // Keep track of all connected peer IDs
-        const connections = [];
-        let localStream = null;
-        let peer = null;
-        let roomId = "";
-
-        document.getElementById("join-btn").addEventListener("click", () => {
-            roomId = document.getElementById("room-id").value.trim();
-            if (roomId) {
-                joinRoom();
-                document.getElementById("room-id-display").innerText = `Room ID: ${roomId}`;
-            }
+function createRoom() {
+    console.log("Creating Room");
+    let room = document.getElementById("room-input").value;
+    if (room == " " || room == "") {
+        alert("Please enter room number");
+        return;
+    }
+    room_id = PRE + room + SUF;
+    peer = new Peer(room_id);
+    peer.on('open', (id) => {
+        console.log("Peer Connected with ID: ", id);
+        hideModal();
+        getUserMedia({ audio: true }, (stream) => {  // Only audio
+            local_stream = stream;
+            setLocalStream(local_stream);
+        }, (err) => {
+            console.log(err);
         });
+        notify("Waiting for peer to join.");
+    });
+    peer.on('call', (call) => {
+        call.answer(local_stream);
+        call.on('stream', (stream) => {
+            setRemoteStream(stream);
+        });
+        currentPeer = call;
+    });
+}
 
-        function joinRoom() {
-            document.getElementById("entry-modal").classList.add("hidden");
-            document.getElementById("meet-area").classList.remove("hidden");
+function setLocalStream(stream) {
+    let audio = document.getElementById("local-audio");
+    audio.srcObject = stream;
+    audio.play();
+}
 
-            peer = new Peer();
+function setRemoteStream(stream) {
+    let audio = document.getElementById("remote-audio");
+    audio.srcObject = stream;
+    audio.play();
+}
 
-            peer.on("open", (id) => {
-                console.log("Connected with ID:", id);
-                peersList.add(id); // Add local user ID to the list
-                addUserIcon(id); // Show local user in UI
+function hideModal() {
+    document.getElementById("entry-modal").hidden = true;
+}
 
-                navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-                    localStream = stream;
+function notify(msg) {
+    let notification = document.getElementById("notification");
+    notification.innerHTML = msg;
+    notification.hidden = false;
+    setTimeout(() => {
+        notification.hidden = true;
+    }, 3000);
+}
 
-                    const localAudio = document.getElementById("local-audio");
-                    localAudio.srcObject = localStream;
-                    localAudio.play();
-
-                    notify("Connected to the room.");
-
-                    // Notify others that a new user has joined
-                    const conn = peer.connect(roomId);
-                    conn.on("open", () => {
-                        conn.send({ type: "join", id: id });
-                    });
-
-                    // Call existing peers
-                    peersList.forEach((peerId) => {
-                        if (peerId !== id) {
-                            const call = peer.call(peerId, localStream);
-                            call.on("stream", (remoteStream) => {
-                                addRemoteAudio(remoteStream, call.peer);
-                            });
-                            connections.push(call);
-                        }
-                    });
-
-                    // Listen for new connections
-                    peer.on("connection", (conn) => {
-                        conn.on("data", (data) => {
-                            if (data.type === "join" && !peersList.has(data.id)) {
-                                peersList.add(data.id);
-                                addUserIcon(data.id);
-
-                                // Notify the new user of all current users
-                                conn.send({ type: "current-users", users: Array.from(peersList) });
-                                
-                                // Call the newly joined peer
-                                const call = peer.call(data.id, localStream);
-                                call.on("stream", (remoteStream) => {
-                                    addRemoteAudio(remoteStream, call.peer);
-                                });
-                                connections.push(call);
-                            } else if (data.type === "current-users") {
-                                // Add all current users sent by the new user
-                                data.users.forEach((userId) => {
-                                    if (!peersList.has(userId)) {
-                                        peersList.add(userId);
-                                        addUserIcon(userId);
-                                    }
-                                });
-                            }
-                        });
-                    });
-
-                    // Listen for incoming calls
-                    peer.on("call", (call) => {
-                        call.answer(localStream); // Send your stream to the caller
-                        call.on("stream", (remoteStream) => {
-                            addRemoteAudio(remoteStream, call.peer); // Play the remote stream
-                        });
-                        connections.push(call);
-                    });
-                }).catch((err) => {
-                    console.error("Error accessing audio devices:", err);
-                });
+function joinRoom() {
+    console.log("Joining Room");
+    let room = document.getElementById("room-input").value;
+    if (room == " " || room == "") {
+        alert("Please enter room number");
+        return;
+    }
+    room_id = PRE + room + SUF;
+    hideModal();
+    peer = new Peer();
+    peer.on('open', (id) => {
+        console.log("Connected with Id: " + id);
+        getUserMedia({ audio: true }, (stream) => {  // Only audio
+            local_stream = stream;
+            setLocalStream(local_stream);
+            notify("Joining peer");
+            let call = peer.call(room_id, stream);
+            call.on('stream', (stream) => {
+                setRemoteStream(stream);
             });
-        }
+            currentPeer = call;
+        }, (err) => {
+            console.log(err);
+        });
+    });
+}
 
-        function addUserIcon(peerId) {
-            const userIcons = document.getElementById("user-icons");
-            if (document.getElementById(`user-${peerId}`)) return; // Avoid duplicate icons
+function startScreenShare() {
+    if (screenSharing) {
+        stopScreenSharing();
+    }
+    navigator.mediaDevices.getDisplayMedia({ video: true }).then((stream) => {
+        // Handle screen sharing here
+    });
+}
 
-            const userDiv = document.createElement("div");
-            userDiv.id = `user-${peerId}`;
-            userDiv.className = "p-4 bg-blue-500 text-white rounded shadow";
-            userDiv.innerText = `User: ${peerId}`;
-            userIcons.appendChild(userDiv);
-        }
+function stopScreenSharing() {
+    if (!screenSharing) return;
+    // Handle stop screen sharing logic
+}
 
-        function addRemoteAudio(stream, peerId) {
-            const existingAudio = document.getElementById(`audio-${peerId}`);
-            if (existingAudio) return;
-
-            const audio = document.createElement("audio");
-            audio.id = `audio-${peerId}`;
-            audio.srcObject = stream;
-            audio.autoplay = true;
-
-            document.body.appendChild(audio);
-        }
-
-        function notify(message) {
-            console.log(message);
-        }
     </script>
 </body>
 </html>
+
