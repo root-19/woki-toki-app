@@ -3,65 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delta Meet - Voice Only</title>
+    <title>Group Voice Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-900 font-sans">
-    <div class="min-h-screen flex flex-col items-center justify-center">
-        <h1 class="text-4xl font-bold text-blue-600 mb-6">The Voice</h1>
-
-        <!-- Notification -->
-        <div id="notification" class="bg-green-100 text-green-800 px-4 py-2 rounded mb-4 hidden"></div>
-
-        <!-- Entry Modal -->
-        <div id="entry-modal" class=" shadow-lg p-6 rounded-lg flex flex-col items-center">
-            <button 
-                onclick="joinRoom()" 
-                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 focus:ring-2 focus:ring-blue-300">
-                Join Nigga
-            </button>
-        </div>
-
-        <!-- Meet Area -->
-        <div id="meet-area" class="hidden w-full max-w-4xl">
-            <div id="user-icons" class="flex flex-wrap items-center space-x-4 mb-6">
-                <!-- User icons dynamically added here -->
-            </div>
-
-            <!-- Remote Audio -->
-            <div id="remote-audio-container" class="grid grid-cols-2 gap-4 mb-6">
-                <!-- Remote audio streams dynamically added here -->
-            </div>
-
-            <div class="text-center mb-6">
-                <audio id="local-audio" controls muted class="w-full max-w-sm mx-auto"></audio>
-            </div>
-
-            <div class="flex justify-center space-x-4">
-                <button 
-                    id="leave-btn" 
-                    onclick="leaveRoom()" 
-                    class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 focus:ring-2 focus:ring-red-300">
-                    Leave Room
-                </button>
-                <button 
-                    id="toggle-microphone-btn" 
-                    class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600 focus:ring-2 focus:ring-gray-300">
-                    Mute/Unmute Microphone
-                </button>
-            </div>
+<body class="bg-gray-100 text-gray-800">
+    <div id="entry-modal" class="flex items-center justify-center h-screen bg-gray-800 text-white">
+        <div class="text-center">
+            <h1 class="text-3xl font-bold mb-4">Join Voice Chat</h1>
+            <input id="room-id" class="p-2 rounded text-gray-800" type="text" placeholder="Enter Room ID" />
+            <button id="join-btn" class="px-4 py-2 bg-blue-500 rounded text-white mt-4">Join</button>
         </div>
     </div>
 
-    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <div id="meet-area" class="hidden h-screen flex flex-col">
+        <div class="flex justify-between p-4 bg-blue-600 text-white">
+            <h2 class="text-xl font-bold">Voice Chat Room</h2>
+            <span id="room-id-display"></span>
+        </div>
+        <div class="flex-grow p-4">
+            <div id="user-icons" class="flex flex-wrap gap-4"></div>
+        </div>
+        <div class="p-4 bg-gray-200 text-center">
+            <audio id="local-audio" controls autoplay muted></audio>
+        </div>
+    </div>
+
     <script>
         const MAX_USERS = 10;
-        let peer = null;
-        let roomId = "DELTA_MEET";
+        const peersList = []; // List of connected peer IDs
+        const connections = [];
         let localStream = null;
-        let connections = [];
-        let peersList = []; // List of all peers in the room
-        const userColors = ["bg-red-400", "bg-blue-400", "bg-green-400", "bg-yellow-400", "bg-purple-400", "bg-pink-400", "bg-indigo-400", "bg-teal-400", "bg-orange-400", "bg-cyan-400"];
+        let peer = null;
+        let roomId = "";
+
+        document.getElementById("join-btn").addEventListener("click", () => {
+            roomId = document.getElementById("room-id").value.trim();
+            if (roomId) {
+                joinRoom();
+                document.getElementById("room-id-display").innerText = `Room ID: ${roomId}`;
+            }
+        });
 
         function joinRoom() {
             document.getElementById("entry-modal").classList.add("hidden");
@@ -83,27 +65,45 @@
 
                     notify("Connected to the room.");
 
-                    // Broadcast your peer ID to others
+                    // Notify others that a new user has joined
                     const conn = peer.connect(roomId);
                     conn.on("open", () => {
                         conn.send({ type: "join", id: id });
                     });
 
-                    // Listen for incoming connections
+                    // Call existing peers
+                    peersList.forEach((peerId) => {
+                        if (peerId !== id) {
+                            const call = peer.call(peerId, localStream);
+                            call.on("stream", (remoteStream) => {
+                                addRemoteAudio(remoteStream, call.peer);
+                            });
+                            connections.push(call);
+                        }
+                    });
+
+                    // Listen for new connections
                     peer.on("connection", (conn) => {
                         conn.on("data", (data) => {
                             if (data.type === "join" && !peersList.includes(data.id)) {
                                 peersList.push(data.id);
                                 addUserIcon(data.id);
+
+                                // Call the newly joined peer
+                                const call = peer.call(data.id, localStream);
+                                call.on("stream", (remoteStream) => {
+                                    addRemoteAudio(remoteStream, call.peer);
+                                });
+                                connections.push(call);
                             }
                         });
                     });
 
-                    // Listen for calls
+                    // Listen for incoming calls
                     peer.on("call", (call) => {
-                        call.answer(localStream);
+                        call.answer(localStream); // Send your stream to the caller
                         call.on("stream", (remoteStream) => {
-                            addRemoteAudio(remoteStream, call.peer);
+                            addRemoteAudio(remoteStream, call.peer); // Play the remote stream
                         });
                         connections.push(call);
                     });
@@ -114,47 +114,28 @@
         }
 
         function addUserIcon(peerId) {
-            if (document.querySelector(`#icon-${peerId}`)) return; // Prevent duplicate icons
-
-            const userIconsContainer = document.getElementById("user-icons");
-            const userIcon = document.createElement("div");
-            const colorClass = userColors[userIconsContainer.children.length % userColors.length];
-
-            userIcon.className = `w-12 h-12 rounded-full ${colorClass} flex items-center justify-center text-white font-bold text-lg`;
-            userIcon.id = `icon-${peerId}`;
-            userIcon.innerText = peerId.charAt(0).toUpperCase();
-            userIcon.title = `User: ${peerId}`;
-            userIconsContainer.appendChild(userIcon);
+            const userIcons = document.getElementById("user-icons");
+            const userDiv = document.createElement("div");
+            userDiv.id = `user-${peerId}`;
+            userDiv.className = "p-4 bg-blue-500 text-white rounded shadow";
+            userDiv.innerText = `User: ${peerId}`;
+            userIcons.appendChild(userDiv);
         }
 
         function addRemoteAudio(stream, peerId) {
-            if (document.querySelector(`#audio-${peerId}`)) return; // Prevent duplicate audio elements
+            const existingAudio = document.getElementById(`audio-${peerId}`);
+            if (existingAudio) return;
 
-            const audioContainer = document.getElementById("remote-audio-container");
-            const audioElement = document.createElement("audio");
-            audioElement.srcObject = stream;
-            audioElement.id = `audio-${peerId}`;
-            audioElement.controls = true;
-            audioElement.play();
-            audioContainer.appendChild(audioElement);
+            const audio = document.createElement("audio");
+            audio.id = `audio-${peerId}`;
+            audio.srcObject = stream;
+            audio.autoplay = true;
+
+            document.body.appendChild(audio);
         }
 
-        function leaveRoom() {
-            if (localStream) {
-                localStream.getTracks().forEach((track) => track.stop());
-            }
-            connections.forEach((call) => call.close());
-            connections = [];
-            if (peer) peer.destroy();
-
-            notify("You have left the room.");
-        }
-
-        function notify(msg) {
-            const notification = document.getElementById("notification");
-            notification.innerText = msg;
-            notification.classList.remove("hidden");
-            setTimeout(() => notification.classList.add("hidden"), 3000);
+        function notify(message) {
+            console.log(message);
         }
     </script>
 </body>
